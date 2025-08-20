@@ -37,14 +37,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Инициализация базы данных при первом запуске
-  const fs = await import("fs");
-  if (!fs.existsSync('./database.sqlite')) {
-    console.log("🚀 Первый запуск - создаем базу данных...");
+  // Инициализация базы данных PostgreSQL
+  console.log("🚀 Подключаемся к PostgreSQL...");
+  try {
     const { createTables } = await import("./migrate");
     const { seedDatabase } = await import("./seed");
     await createTables();
     await seedDatabase();
+  } catch (error) {
+    console.warn("ℹ️  База данных уже существует или произошла ошибка:", error instanceof Error ? error.message : String(error));
   }
 
   const server = await registerRoutes(app);
@@ -77,6 +78,6 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`🎮 KinoGame сервер запущен на порту ${port}`);
-    log(`🎬 База данных: SQLite`);
+    log(`🎬 База данных: PostgreSQL`);
   });
 })();

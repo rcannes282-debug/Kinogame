@@ -1,22 +1,23 @@
 import { sql, relations } from 'drizzle-orm';
 import {
   index,
-  text as sqliteText,
-  sqliteTable,
-  integer,
   text,
-  blob,
-} from "drizzle-orm/sqlite-core";
+  pgTable,
+  integer,
+  timestamp,
+  boolean,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Session storage table (mandatory for Replit Auth)
-export const sessions = sqliteTable(
+export const sessions = pgTable(
   "sessions",
   {
     sid: text("sid").primaryKey(),
     sess: text("sess").notNull(),
-    expire: integer("expire", { mode: 'timestamp' }).notNull(),
+    expire: timestamp("expire", { mode: 'date' }).notNull(),
   },
   (table) => ({
     expireIdx: index("IDX_session_expire").on(table.expire),
@@ -24,7 +25,7 @@ export const sessions = sqliteTable(
 );
 
 // User storage table (mandatory for Replit Auth)
-export const users = sqliteTable("users", {
+export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").unique(),
   firstName: text("first_name"),
@@ -33,13 +34,13 @@ export const users = sqliteTable("users", {
   coins: integer("coins").default(0),
   totalScore: integer("total_score").default(0),
   gamesPlayed: integer("games_played").default(0),
-  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: timestamp("created_at", { mode: 'date' }).default(sql`NOW()`),
+  updatedAt: timestamp("updated_at", { mode: 'date' }).default(sql`NOW()`),
 });
 
 // Questions table
-export const questions = sqliteTable("questions", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+export const questions = pgTable("questions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   question: text("question").notNull(),
   optionA: text("option_a").notNull(),
   optionB: text("option_b").notNull(),
@@ -48,12 +49,12 @@ export const questions = sqliteTable("questions", {
   correctAnswer: text("correct_answer").notNull(), // A, B, C, or D
   category: text("category").notNull(),
   difficulty: integer("difficulty").default(1), // 1-5
-  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: timestamp("created_at", { mode: 'date' }).default(sql`NOW()`),
 });
 
 // Game sessions
-export const gameSessions = sqliteTable("game_sessions", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+export const gameSessions = pgTable("game_sessions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").references(() => users.id),
   gameMode: text("game_mode").notNull(),
   category: text("category"),
@@ -61,15 +62,15 @@ export const gameSessions = sqliteTable("game_sessions", {
   questionsAnswered: integer("questions_answered").default(0),
   correctAnswers: integer("correct_answers").default(0),
   livesRemaining: integer("lives_remaining").default(5),
-  isCompleted: integer("is_completed", { mode: 'boolean' }).default(false),
+  isCompleted: boolean("is_completed").default(false),
   timeSpent: integer("time_spent").default(0), // in seconds
-  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  completedAt: integer("completed_at", { mode: 'timestamp' }),
+  createdAt: timestamp("created_at", { mode: 'date' }).default(sql`NOW()`),
+  completedAt: timestamp("completed_at", { mode: 'date' }),
 });
 
 // Multiplayer rooms
-export const multiplayerRooms = sqliteTable("multiplayer_rooms", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+export const multiplayerRooms = pgTable("multiplayer_rooms", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   hostId: text("host_id").references(() => users.id).notNull(),
   maxPlayers: integer("max_players").default(8),
@@ -77,30 +78,30 @@ export const multiplayerRooms = sqliteTable("multiplayer_rooms", {
   gameMode: text("game_mode").default('multiplayer'),
   category: text("category"),
   timePerQuestion: integer("time_per_question").default(30), // in seconds
-  isPrivate: integer("is_private", { mode: 'boolean' }).default(false),
+  isPrivate: boolean("is_private").default(false),
   password: text("password"),
-  isActive: integer("is_active", { mode: 'boolean' }).default(true),
-  isStarted: integer("is_started", { mode: 'boolean' }).default(false),
-  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  isActive: boolean("is_active").default(true),
+  isStarted: boolean("is_started").default(false),
+  createdAt: timestamp("created_at", { mode: 'date' }).default(sql`NOW()`),
 });
 
 // Room participants
-export const roomParticipants = sqliteTable("room_participants", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
-  roomId: text("room_id").references(() => multiplayerRooms.id).notNull(),
+export const roomParticipants = pgTable("room_participants", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomId: uuid("room_id").references(() => multiplayerRooms.id).notNull(),
   userId: text("user_id").references(() => users.id).notNull(),
   score: integer("score").default(0),
-  isReady: integer("is_ready", { mode: 'boolean' }).default(false),
-  joinedAt: integer("joined_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  isReady: boolean("is_ready").default(false),
+  joinedAt: timestamp("joined_at", { mode: 'date' }).default(sql`NOW()`),
 });
 
 // User inventory (for purchased items)
-export const userInventory = sqliteTable("user_inventory", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+export const userInventory = pgTable("user_inventory", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").references(() => users.id).notNull(),
   itemType: text("item_type").notNull(), // 'extra_life', '50_50', 'extra_time'
   quantity: integer("quantity").default(0),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: timestamp("updated_at", { mode: 'date' }).default(sql`NOW()`),
 });
 
 // Relations
