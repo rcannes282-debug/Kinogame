@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -50,6 +51,32 @@ export default function Shop() {
   const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [location] = useLocation();
+  
+  // Обрабатываем возврат с платёжной страницы
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentStatus = params.get('payment');
+    
+    if (paymentStatus === 'success') {
+      toast({
+        title: "Платёж успешен!",
+        description: "Монеты будут зачислены в течение нескольких минут",
+        duration: 5000,
+      });
+      // Очищаем URL
+      window.history.replaceState({}, '', '/shop');
+      // Обновляем баланс пользователя
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    } else if (paymentStatus === 'cancel') {
+      toast({
+        title: "Платёж отменён",
+        description: "Оплата была отменена",
+        variant: "destructive",
+      });
+      window.history.replaceState({}, '', '/shop');
+    }
+  }, [location, toast, queryClient]);
 
   // Fetch user inventory
   const { data: inventory } = useQuery<any[]>({
@@ -61,17 +88,24 @@ export default function Shop() {
   const buyCoinsMutation = useMutation({
     mutationFn: async ({ packageData }: { packageData: CoinPackage }) => {
       if (!user?.id) throw new Error("User not authenticated");
-      return apiRequest("POST", `/api/users/${user.id}/buy-coins`, {
+      const response = await apiRequest("POST", "/api/create-payment", {
         amount: packageData.price,
         coins: packageData.coins,
+        description: `Покупка ${packageData.name} - ${packageData.coins} монет`
       });
+      return response.json();
     },
-    onSuccess: () => {
-      toast({
-        title: "Покупка успешна!",
-        description: "Монеты добавлены на ваш счет",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    onSuccess: (data) => {
+      if (data.confirmationUrl) {
+        // Перенаправляем на страницу оплаты YooKassa
+        window.location.href = data.confirmationUrl;
+      } else {
+        toast({
+          title: "Покупка успешна!",
+          description: "Монеты добавлены на ваш счет",
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      }
     },
     onError: (error: Error) => {
       if (isUnauthorizedError(error)) {
@@ -87,7 +121,7 @@ export default function Shop() {
       }
       toast({
         title: "Ошибка покупки",
-        description: "Не удалось купить монеты. Попробуйте позже.",
+        description: "Не удалось создать платёж. Попробуйте позже.",
         variant: "destructive",
       });
     },

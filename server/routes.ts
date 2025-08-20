@@ -1,5 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import { v4 as uuidv4 } from "uuid";
+import YooKassa from "yookassa";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { 
@@ -10,6 +13,14 @@ import {
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Инициализируем YooKassa, если доступны секреты
+  let yookassa: YooKassa | null = null;
+  if (process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY) {
+    yookassa = new YooKassa({
+      shopId: process.env.YOOKASSA_SHOP_ID,
+      secretKey: process.env.YOOKASSA_SECRET_KEY
+    });
+  }
   // Auth middleware
   await setupAuth(app);
 
@@ -25,12 +36,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Question routes
+  // Профиль пользователя
+  app.get('/api/users/:userId/profile', isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      res.status(500).json({ message: "Failed to fetch user profile" });
+    }
+  });
+
+  app.put('/api/users/:userId/profile', isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const profileData = req.body;
+      
+      // Проверяем, что пользователь может редактировать только свой профиль
+      if ((req.user as any).claims.sub !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const user = await storage.updateUserProfile(userId, profileData);
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating user profile:", error);
+      res.status(500).json({ message: "Failed to update user profile" });
+    }
+  });
+
+  // Question routes - безопасные (без правильных ответов)
   app.get('/api/questions/:category', async (req, res) => {
     try {
       const { category } = req.params;
       const limit = parseInt(req.query.limit as string) || 10;
-      const questions = await storage.getQuestionsByCategory(category, limit);
+      const questions = await storage.getQuestionsForGame(limit, category);
       res.json(questions);
     } catch (error) {
       console.error("Error fetching questions:", error);
@@ -42,11 +86,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const category = req.query.category as string;
-      const questions = await storage.getRandomQuestions(limit, category);
+      const questions = await storage.getQuestionsForGame(limit, category);
       res.json(questions);
     } catch (error) {
       console.error("Error fetching questions:", error);
       res.status(500).json({ message: "Failed to fetch questions" });
+    }
+  });
+
+  // Проверка ответа на бэкенде
+  app.post('/api/questions/:questionId/check-answer', async (req, res) => {
+    try {
+      const { questionId } = req.params;
+      const { answer } = req.body;
+      
+      if (!answer) {
+        return res.json({ isCorrect: false });
+      }
+      
+      const isCorrect = await storage.checkAnswer(questionId, answer);
+      res.json({ isCorrect });
+    } catch (error) {
+      console.error("Error checking answer:", error);
+      res.status(500).json({ message: "Failed to check answer" });
     }
   });
 
@@ -174,6 +236,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = (req.user as any).claims.sub;
       
       const participant = await storage.joinRoom(id, userId);
+      
+      // Обновляем количество игроков в комнате
+      await storage.updateRoomPlayerCount(id);
+      
       res.json(participant);
     } catch (error) {
       console.error("Error joining room:", error);
@@ -187,6 +253,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = (req.user as any).claims.sub;
       
       await storage.leaveRoom(id, userId);
+      
+      // Обновляем количество игроков в комнате
+      await storage.updateRoomPlayerCount(id);
+      
       res.json({ success: true });
     } catch (error) {
       console.error("Error leaving room:", error);
@@ -217,13 +287,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Быстрая игра - автоматический поиск комнаты
+  app.post('/api/quick-match', isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).claims.sub;
+      const { gameMode, category } = req.body;
+      
+      // Пытаемся найти свободную комнату
+      let availableRoom = await storage.findAvailableRoom(gameMode, category);
+      
+      if (!availableRoom) {
+        // Создаем новую комнату
+        availableRoom = await storage.createRoom({
+          name: `Быстрая игра #${Math.floor(Math.random() * 1000)}`,
+          hostId: userId,
+          gameMode,
+          category,
+          isPrivate: false,
+          maxPlayers: 4
+        });
+      } else {
+        // Присоединяемся к существующей комнате
+        await storage.joinRoom(availableRoom.id, userId);
+        await storage.updateRoomPlayerCount(availableRoom.id);
+      }
+      
+      res.json({ room: availableRoom });
+    } catch (error) {
+      console.error("Error in quick match:", error);
+      res.status(500).json({ message: "Failed to find or create room" });
+    }
+  });
+
+  // Создание платежа YooKassa
+  app.post('/api/create-payment', isAuthenticated, async (req, res) => {
+    try {
+      const { amount, coins, description } = req.body;
+      const userId = (req.user as any).claims.sub;
+      
+      if (!yookassa) {
+        return res.status(500).json({ message: "YooKassa not configured" });
+      }
+      
+      const paymentData = {
+        amount: {
+          value: amount.toString(),
+          currency: 'RUB'
+        },
+        confirmation: {
+          type: 'redirect',
+          return_url: `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/shop?payment=success`
+        },
+        capture: true,
+        description: description || `Покупка ${coins} монет`,
+        metadata: {
+          userId,
+          coins: coins.toString()
+        }
+      };
+      
+      const payment = await yookassa.createPayment(paymentData, uuidv4());
+      if (!payment.confirmation?.confirmation_url) {
+        throw new Error('Payment confirmation URL not received');
+      }
+      res.json({ confirmationUrl: payment.confirmation?.confirmation_url });
+    } catch (error) {
+      console.error("Error creating payment:", error);
+      res.status(500).json({ message: "Failed to create payment" });
+    }
+  });
+  
+  // Webhook для получения уведомлений о платежах
+  app.post('/api/payment-webhook', async (req, res) => {
+    try {
+      const payment = req.body.object;
+      
+      if (payment.status === 'succeeded') {
+        const userId = payment.metadata.userId;
+        const coins = parseInt(payment.metadata.coins);
+        
+        // Добавляем монеты пользователю
+        const user = await storage.getUser(userId);
+        if (user) {
+          await storage.updateUserCoins(userId, (user.coins || 0) + coins);
+          console.log(`Добавлено ${coins} монет пользователю ${userId}`);
+        }
+      }
+      
+      res.status(200).send('OK');
+    } catch (error) {
+      console.error("Error processing payment webhook:", error);
+      res.status(500).json({ message: "Failed to process payment" });
+    }
+  });
+
   app.post('/api/users/:userId/buy-coins', isAuthenticated, async (req, res) => {
     try {
       const { userId } = req.params;
       const { amount, coins } = req.body;
       
-      // TODO: Integrate with payment system (YooKassa)
-      // For now, just add coins (this would be done after successful payment)
+      // Если YooKassa настроена, используем её
+      if (yookassa) {
+        return res.status(400).json({ 
+          message: "Use /api/create-payment endpoint for purchases",
+          usePaymentFlow: true 
+        });
+      }
+      
+      // Fallback для разработки без YooKassa
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -271,5 +442,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+  
+  // Добавляем WebSocket сервер для мультиплеера
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  
+  // Храним соединения по комнатам
+  const roomConnections = new Map<string, Map<string, WebSocket>>();
+  const userRooms = new Map<string, string>();
+
+  wss.on('connection', (ws, request) => {
+    console.log('Новое WebSocket соединение');
+    
+    ws.on('message', async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        const { type, roomId, userId, payload } = message;
+        
+        switch (type) {
+          case 'join_room':
+            // Подключаем пользователя к комнате
+            if (!roomConnections.has(roomId)) {
+              roomConnections.set(roomId, new Map());
+            }
+            roomConnections.get(roomId)?.set(userId, ws);
+            userRooms.set(userId, roomId);
+            
+            // Уведомляем всех в комнате
+            broadcastToRoom(roomId, {
+              type: 'user_joined',
+              userId,
+              payload: await storage.getRoomParticipants(roomId)
+            });
+            break;
+            
+          case 'leave_room':
+            // Отключаем пользователя от комнаты
+            roomConnections.get(roomId)?.delete(userId);
+            userRooms.delete(userId);
+            
+            broadcastToRoom(roomId, {
+              type: 'user_left',
+              userId,
+              payload: await storage.getRoomParticipants(roomId)
+            });
+            break;
+            
+          case 'game_start':
+            // Запуск игры
+            const gameQuestions = await storage.getQuestionsForGame(10, payload?.category);
+            broadcastToRoom(roomId, {
+              type: 'game_started',
+              payload: { questions: gameQuestions }
+            });
+            break;
+            
+          case 'submit_answer':
+            // Обработка ответа
+            const { questionId, answer } = payload;
+            const isCorrect = await storage.checkAnswer(questionId, answer);
+            
+            // Отправляем результат только отправителю
+            ws.send(JSON.stringify({
+              type: 'answer_result',
+              payload: { isCorrect, questionId }
+            }));
+            
+            // Уведомляем всех о том, что игрок ответил
+            broadcastToRoom(roomId, {
+              type: 'player_answered',
+              userId,
+              payload: { questionId }
+            });
+            break;
+            
+          case 'next_question':
+            // Переход к следующему вопросу
+            broadcastToRoom(roomId, {
+              type: 'next_question',
+              payload
+            });
+            break;
+        }
+      } catch (error) {
+        console.error('WebSocket ошибка:', error);
+      }
+    });
+    
+    ws.on('close', () => {
+      // Очищаем соединения
+      userRooms.forEach((roomId, userId) => {
+        if (roomConnections.get(roomId)?.get(userId) === ws) {
+          roomConnections.get(roomId)?.delete(userId);
+          userRooms.delete(userId);
+          
+          // Уведомляем о отключении
+          storage.getRoomParticipants(roomId).then(participants => {
+            broadcastToRoom(roomId, {
+              type: 'user_left',
+              userId,
+              payload: participants
+            });
+          });
+          return;
+        }
+      });
+    });
+  });
+  
+  function broadcastToRoom(roomId: string, message: any) {
+    const roomWs = roomConnections.get(roomId);
+    if (roomWs) {
+      const messageStr = JSON.stringify(message);
+      roomWs.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(messageStr);
+        }
+      });
+    }
+  }
+  
   return httpServer;
 }

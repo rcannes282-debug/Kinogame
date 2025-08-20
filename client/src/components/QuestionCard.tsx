@@ -5,7 +5,7 @@ import { Heart, HelpCircle, Divide, Clock } from "lucide-react";
 import { Question } from "@shared/schema";
 
 interface QuestionCardProps {
-  question: Question;
+  question: Omit<Question, 'correctAnswer'>;
   currentQuestion: number;
   totalQuestions: number;
   lives: number;
@@ -15,7 +15,7 @@ interface QuestionCardProps {
   maxTime?: number;
   selectedAnswer?: string;
   showResult?: boolean;
-  correctAnswer?: string;
+  isCorrect?: boolean;
   onAnswerSelect: (answer: string) => void;
   onUseItem?: (item: string) => void;
   userInventory?: Record<string, number>;
@@ -32,7 +32,7 @@ export default function QuestionCard({
   maxTime,
   selectedAnswer,
   showResult,
-  correctAnswer,
+  isCorrect,
   onAnswerSelect,
   onUseItem,
   userInventory = {},
@@ -51,12 +51,13 @@ export default function QuestionCard({
       return `${baseClass} ${selectedAnswer === optionKey ? 'border-game-purple bg-game-purple/20' : 'hover:border-game-purple'}`;
     }
     
-    if (optionKey === correctAnswer) {
-      return `${baseClass} border-game-green bg-game-green/20`;
-    }
-    
-    if (selectedAnswer === optionKey && optionKey !== correctAnswer) {
-      return `${baseClass} border-red-500 bg-red-500/20`;
+    // Показываем результат только для выбранного ответа
+    if (selectedAnswer === optionKey) {
+      if (isCorrect) {
+        return `${baseClass} border-game-green bg-game-green/20`;
+      } else {
+        return `${baseClass} border-red-500 bg-red-500/20`;
+      }
     }
     
     return `${baseClass} opacity-50`;

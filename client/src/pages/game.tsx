@@ -7,8 +7,10 @@ import Header from "@/components/Header";
 import QuestionCard from "@/components/QuestionCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Question } from "@shared/schema";
+
+type GameQuestion = Omit<Question, 'correctAnswer'>;
 import { Trophy, RotateCcw, Home } from "lucide-react";
 
 export default function Game() {
@@ -22,7 +24,7 @@ export default function Game() {
 
   // Game state
   const [gameSession, setGameSession] = useState<any>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questions, setQuestions] = useState<GameQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -37,8 +39,8 @@ export default function Game() {
   const maxLives = gameMode === "infinite" ? 5 : 1;
   const questionsPerGame = gameMode === "infinite" ? 50 : 10;
 
-  // Fetch questions
-  const { data: questionData, isLoading: questionsLoading } = useQuery({
+  // Fetch questions - без правильных ответов
+  const { data: questionData, isLoading: questionsLoading } = useQuery<GameQuestion[]>({
     queryKey: ["/api/questions"],
     queryFn: async () => {
       const category = gameMode === "top250" ? "top_250" : "general";
@@ -69,6 +71,15 @@ export default function Game() {
     mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
       return apiRequest("PUT", `/api/game-sessions/${id}`, updates);
     },
+    onSuccess: () => {
+      // Инвалидируем кеш после завершения игры
+      queryClient.invalidateQueries({ queryKey: ['/api/leaderboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/users', user?.id, 'game-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      if (user?.id) {
+        queryClient.invalidateQueries({ queryKey: ['/api/users', user.id] });
+      }
+    },
   });
 
   // Use inventory item
@@ -76,6 +87,12 @@ export default function Game() {
     mutationFn: async ({ itemType, quantity }: { itemType: string; quantity: number }) => {
       if (!user?.id) throw new Error("User not authenticated");
       return apiRequest("POST", `/api/users/${user.id}/use-item`, { itemType, quantity });
+    },
+    onSuccess: () => {
+      // Обновляем инвентарь после использования предмета
+      if (user?.id) {
+        queryClient.invalidateQueries({ queryKey: ['/api/users', user.id, 'inventory'] });
+      }
     },
   });
 
@@ -128,29 +145,46 @@ export default function Game() {
     handleAnswerSubmit(answer);
   };
 
+  // Проверка ответа на бэкенде
+  const checkAnswer = useMutation({
+    mutationFn: async ({ questionId, answer }: { questionId: string; answer: string | null }) => {
+      if (!answer) return { isCorrect: false };
+      const response = await fetch(`/api/questions/${questionId}/check-answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer }),
+      });
+      return response.json();
+    },
+    onSuccess: (data, variables) => {
+      const { isCorrect } = data;
+      setShowResult(true);
+      
+      if (isCorrect) {
+        const points = gameMode === "timed" ? Math.max(100, timeLeft ? timeLeft * 10 : 100) : 100;
+        setScore(prev => prev + points);
+        setCorrectAnswers(prev => prev + 1);
+      } else if (gameMode === "infinite") {
+        setLives(prev => prev - 1);
+      }
+
+      // Move to next question after 2 seconds
+      setTimeout(() => {
+        if (isCorrect || gameMode !== "infinite" || lives > 1) {
+          nextQuestion();
+        } else {
+          endGame();
+        }
+      }, 2000);
+    },
+  });
+
   // Handle answer submission
   const handleAnswerSubmit = (answer: string | null) => {
     const currentQuestion = questions[currentQuestionIndex];
-    const isCorrect = answer === currentQuestion?.correctAnswer;
+    if (!currentQuestion?.id) return;
     
-    setShowResult(true);
-    
-    if (isCorrect) {
-      const points = gameMode === "timed" ? Math.max(100, timeLeft ? timeLeft * 10 : 100) : 100;
-      setScore(prev => prev + points);
-      setCorrectAnswers(prev => prev + 1);
-    } else if (gameMode === "infinite") {
-      setLives(prev => prev - 1);
-    }
-
-    // Move to next question after 2 seconds
-    setTimeout(() => {
-      if (isCorrect || gameMode !== "infinite" || lives > 1) {
-        nextQuestion();
-      } else {
-        endGame();
-      }
-    }, 2000);
+    checkAnswer.mutate({ questionId: currentQuestion.id, answer });
   };
 
   // Move to next question
@@ -329,7 +363,7 @@ export default function Game() {
           maxTime={maxTime}
           selectedAnswer={selectedAnswer || undefined}
           showResult={showResult}
-          correctAnswer={showResult ? currentQuestion.correctAnswer : undefined}
+          isCorrect={checkAnswer.data?.isCorrect}
           onAnswerSelect={handleAnswerSelect}
           onUseItem={isAuthenticated ? handleUseItem : undefined}
           userInventory={userInventoryMap}

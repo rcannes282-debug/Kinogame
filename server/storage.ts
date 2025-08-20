@@ -25,10 +25,13 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserCoins(userId: string, coins: number): Promise<void>;
   updateUserStats(userId: string, score: number): Promise<void>;
+  updateUserProfile(userId: string, profileData: Partial<User>): Promise<User | undefined>;
   
   // Question operations
   getQuestionsByCategory(category: string, limit?: number): Promise<Question[]>;
   getRandomQuestions(limit: number, category?: string): Promise<Question[]>;
+  getQuestionsForGame(limit: number, category?: string): Promise<Omit<Question, 'correctAnswer'>[]>;
+  checkAnswer(questionId: string, answer: string): Promise<boolean>;
   createQuestion(question: InsertQuestion): Promise<Question>;
   
   // Game session operations
@@ -47,6 +50,8 @@ export interface IStorage {
   joinRoom(roomId: string, userId: string): Promise<RoomParticipant>;
   leaveRoom(roomId: string, userId: string): Promise<void>;
   getRoomParticipants(roomId: string): Promise<RoomParticipant[]>;
+  updateRoomPlayerCount(roomId: string): Promise<void>;
+  findAvailableRoom(gameMode?: string, category?: string): Promise<MultiplayerRoom | undefined>;
   
   // Inventory operations
   getUserInventory(userId: string): Promise<UserInventory[]>;
@@ -96,9 +101,18 @@ export class DatabaseStorage implements IStorage {
       .set({
         totalScore: sql`${users.totalScore} + ${score}`,
         gamesPlayed: sql`${users.gamesPlayed} + 1`,
-        updatedAt: sql`(unixepoch())`,
+        updatedAt: sql`NOW()`,
       })
       .where(eq(users.id, userId));
+  }
+
+  async updateUserProfile(userId: string, profileData: Partial<User>): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ ...profileData, updatedAt: sql`NOW()` })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
   }
 
   // Question operations
@@ -126,6 +140,39 @@ export class DatabaseStorage implements IStorage {
       .from(questions)
       .orderBy(sql`RANDOM()`)
       .limit(limit);
+  }
+
+  async getQuestionsForGame(limit: number, category?: string): Promise<Omit<Question, 'correctAnswer'>[]> {
+    let query = db
+      .select({
+        id: questions.id,
+        question: questions.question,
+        optionA: questions.optionA,
+        optionB: questions.optionB,
+        optionC: questions.optionC,
+        optionD: questions.optionD,
+        category: questions.category,
+        difficulty: questions.difficulty,
+        createdAt: questions.createdAt,
+      })
+      .from(questions)
+      .orderBy(sql`RANDOM()`)
+      .limit(limit);
+
+    if (category) {
+      query = query.where(eq(questions.category, category)) as any;
+    }
+    
+    return await query;
+  }
+
+  async checkAnswer(questionId: string, answer: string): Promise<boolean> {
+    const [question] = await db
+      .select({ correctAnswer: questions.correctAnswer })
+      .from(questions)
+      .where(eq(questions.id, questionId));
+    
+    return question?.correctAnswer === answer;
   }
 
   async createQuestion(question: InsertQuestion): Promise<Question> {
@@ -270,6 +317,50 @@ export class DatabaseStorage implements IStorage {
       .from(roomParticipants)
       .where(eq(roomParticipants.roomId, roomId))
       .orderBy(asc(roomParticipants.joinedAt));
+  }
+
+  async updateRoomPlayerCount(roomId: string): Promise<void> {
+    const participants = await this.getRoomParticipants(roomId);
+    await db
+      .update(multiplayerRooms)
+      .set({ currentPlayers: participants.length })
+      .where(eq(multiplayerRooms.id, roomId));
+  }
+
+  async findAvailableRoom(gameMode?: string, category?: string): Promise<MultiplayerRoom | undefined> {
+    let query = db
+      .select()
+      .from(multiplayerRooms)
+      .where(and(
+        eq(multiplayerRooms.isActive, true),
+        eq(multiplayerRooms.isStarted, false),
+        eq(multiplayerRooms.isPrivate, false),
+        sql`${multiplayerRooms.currentPlayers} < ${multiplayerRooms.maxPlayers}`
+      ))
+      .orderBy(desc(multiplayerRooms.createdAt))
+      .limit(1);
+
+    if (gameMode) {
+      const baseQuery = db
+        .select()
+        .from(multiplayerRooms)
+        .where(and(
+          eq(multiplayerRooms.isActive, true),
+          eq(multiplayerRooms.isStarted, false),
+          eq(multiplayerRooms.isPrivate, false),
+          sql`${multiplayerRooms.currentPlayers} < ${multiplayerRooms.maxPlayers}`,
+          eq(multiplayerRooms.gameMode, gameMode),
+          category ? eq(multiplayerRooms.category, category) : sql`1=1`
+        ))
+        .orderBy(desc(multiplayerRooms.createdAt))
+        .limit(1);
+      
+      const [room] = await baseQuery;
+      return room;
+    }
+
+    const [room] = await query;
+    return room;
   }
 
   // Inventory operations

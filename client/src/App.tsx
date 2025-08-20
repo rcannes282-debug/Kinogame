@@ -11,6 +11,7 @@ import Game from "@/pages/game";
 import Multiplayer from "@/pages/multiplayer";
 import Leaderboard from "@/pages/leaderboard";
 import Shop from "@/pages/shop";
+import Profile from "@/pages/profile";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -26,6 +27,7 @@ function Router() {
           <Route path="/multiplayer" component={Multiplayer} />
           <Route path="/leaderboard" component={Leaderboard} />
           <Route path="/shop" component={Shop} />
+          <Route path="/profile" component={Profile} />
         </>
       )}
       <Route component={NotFound} />
