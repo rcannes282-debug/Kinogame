@@ -74,7 +74,7 @@ export class DatabaseStorage implements IStorage {
         .update(users)
         .set({
           ...userData,
-          updatedAt: sql`(unixepoch())`,
+          updatedAt: sql`NOW()`,
         })
         .where(eq(users.id, userData.id))
         .returning();
@@ -91,7 +91,7 @@ export class DatabaseStorage implements IStorage {
   async updateUserCoins(userId: string, coins: number): Promise<void> {
     await db
       .update(users)
-      .set({ coins, updatedAt: sql`(unixepoch())` })
+      .set({ coins, updatedAt: sql`NOW()` })
       .where(eq(users.id, userId));
   }
 
@@ -385,7 +385,7 @@ export class DatabaseStorage implements IStorage {
         .update(userInventory)
         .set({
           quantity: sql`${userInventory.quantity} + ${quantity}`,
-          updatedAt: sql`(unixepoch())`,
+          updatedAt: sql`NOW()`,
         })
         .where(and(
           eq(userInventory.userId, userId),
@@ -415,7 +415,7 @@ export class DatabaseStorage implements IStorage {
       .update(userInventory)
       .set({
         quantity: sql`${userInventory.quantity} - ${quantity}`,
-        updatedAt: sql`(unixepoch())`,
+        updatedAt: sql`NOW()`,
       })
       .where(and(
         eq(userInventory.userId, userId),
