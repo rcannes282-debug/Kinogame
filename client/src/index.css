@@ -163,3 +163,21 @@
 .animate-bounce-slow {
   animation: bounce-slow 2s infinite;
 }
+
+/* Защита от копирования текста вопросов */
+.question-text {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.question-text::selection {
+  background: transparent;
+}
+
+.question-text::-moz-selection {
+  background: transparent;
+}

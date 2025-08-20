@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { v4 as uuidv4 } from "uuid";
+// @ts-ignore
 import YooKassa from "yookassa";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
@@ -14,7 +15,7 @@ import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Инициализируем YooKassa, если доступны секреты
-  let yookassa: YooKassa | null = null;
+  let yookassa: any = null;
   if (process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY) {
     yookassa = new YooKassa({
       shopId: process.env.YOOKASSA_SHOP_ID,

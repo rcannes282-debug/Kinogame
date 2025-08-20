@@ -139,6 +139,42 @@ export default function Multiplayer() {
     },
   });
 
+  // Quick match mutation
+  const quickMatchMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/quick-match", {
+        gameMode: "multiplayer",
+        category: "general"
+      });
+    },
+    onSuccess: async (response) => {
+      const data = await response.json();
+      toast({
+        title: "Комната найдена!",
+        description: "Вы присоединились к игре",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms"] });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        toast({
+          title: "Ошибка авторизации",
+          description: "Вы будете перенаправлены на страницу входа...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Ошибка",
+        description: "Не удалось найти игру",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleCreateRoom = () => {
     if (!createRoomForm.name.trim()) {
       toast({
@@ -154,6 +190,10 @@ export default function Multiplayer() {
 
   const handleJoinRoom = (roomId: string) => {
     joinRoomMutation.mutate(roomId);
+  };
+
+  const handleQuickMatch = () => {
+    quickMatchMutation.mutate();
   };
 
   const getGameModeText = (mode: string) => {
@@ -345,9 +385,9 @@ export default function Multiplayer() {
                   <div className="animate-spin w-6 h-6 border-2 border-game-blue border-t-transparent rounded-full mx-auto mb-4"></div>
                   <p className="text-gray-400">Загружаем комнаты...</p>
                 </div>
-              ) : rooms && rooms.length > 0 ? (
+              ) : rooms && Array.isArray(rooms) && rooms.length > 0 ? (
                 <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {rooms.map((room: any) => (
+                  {Array.isArray(rooms) && rooms.map((room: any) => (
                     <Card
                       key={room.id}
                       className="bg-game-darker border-gray-600 hover:border-game-blue transition-colors cursor-pointer"
@@ -402,16 +442,15 @@ export default function Multiplayer() {
               <Separator className="my-4 bg-gray-700" />
 
               <Button
-                onClick={() => {
-                  // TODO: Implement quick match functionality
-                  toast({
-                    title: "Скоро будет готово!",
-                    description: "Функция быстрой игры будет доступна в ближайшее время",
-                  });
-                }}
+                onClick={handleQuickMatch}
+                disabled={quickMatchMutation.isPending}
                 className="w-full game-button-blue py-3"
               >
-                <Zap className="mr-2" />
+                {quickMatchMutation.isPending ? (
+                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                ) : (
+                  <Zap className="mr-2" />
+                )}
                 Быстрая игра
               </Button>
             </CardContent>

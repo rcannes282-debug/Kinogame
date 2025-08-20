@@ -109,7 +109,7 @@ export default function QuestionCard({
 
         {/* Question */}
         <div className="text-center mb-8">
-          <h3 className="text-2xl font-semibold mb-4">{question.question}</h3>
+          <h3 className="text-2xl font-semibold mb-4 select-none question-text">{question.question}</h3>
         </div>
 
         {/* Answer Options */}
@@ -126,7 +126,7 @@ export default function QuestionCard({
                 <div className="w-8 h-8 bg-game-purple/20 border border-game-purple rounded-full flex items-center justify-center mr-3 font-semibold">
                   {option.key}
                 </div>
-                <span className="text-left">{option.text}</span>
+                <span className="text-left select-none question-text">{option.text}</span>
               </div>
             </Button>
           ))}

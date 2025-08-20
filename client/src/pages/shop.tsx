@@ -230,16 +230,7 @@ export default function Shop() {
       return;
     }
 
-    // In a real app, this would integrate with YooKassa payment system
-    toast({
-      title: "Перенаправление на оплату",
-      description: "Вы будете перенаправлены на страницу оплаты...",
-    });
-    
-    // Simulate successful payment after 2 seconds
-    setTimeout(() => {
-      buyCoinsMutation.mutate({ packageData });
-    }, 2000);
+    buyCoinsMutation.mutate({ packageData });
   };
 
   const handleBuyItem = (item: GameItem) => {
