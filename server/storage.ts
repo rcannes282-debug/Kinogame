@@ -62,24 +62,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
+    const existingUser = await this.getUser(userData.id);
+    
+    if (existingUser) {
+      const [user] = await db
+        .update(users)
+        .set({
           ...userData,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return user;
+          updatedAt: sql`(unixepoch())`,
+        })
+        .where(eq(users.id, userData.id))
+        .returning();
+      return user;
+    } else {
+      const [user] = await db
+        .insert(users)
+        .values(userData)
+        .returning();
+      return user;
+    }
   }
 
   async updateUserCoins(userId: string, coins: number): Promise<void> {
     await db
       .update(users)
-      .set({ coins, updatedAt: new Date() })
+      .set({ coins, updatedAt: sql`(unixepoch())` })
       .where(eq(users.id, userId));
   }
 
@@ -89,7 +96,7 @@ export class DatabaseStorage implements IStorage {
       .set({
         totalScore: sql`${users.totalScore} + ${score}`,
         gamesPlayed: sql`${users.gamesPlayed} + 1`,
-        updatedAt: new Date(),
+        updatedAt: sql`(unixepoch())`,
       })
       .where(eq(users.id, userId));
   }
@@ -99,19 +106,26 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(questions)
-      .where(eq(questions.category, category as any))
+      .where(eq(questions.category, category))
       .orderBy(sql`RANDOM()`)
       .limit(limit);
   }
 
   async getRandomQuestions(limit: number, category?: string): Promise<Question[]> {
-    const query = db.select().from(questions);
-    
     if (category) {
-      query.where(eq(questions.category, category as any));
+      return await db
+        .select()
+        .from(questions)
+        .where(eq(questions.category, category))
+        .orderBy(sql`RANDOM()`)
+        .limit(limit);
     }
     
-    return await query.orderBy(sql`RANDOM()`).limit(limit);
+    return await db
+      .select()
+      .from(questions)
+      .orderBy(sql`RANDOM()`)
+      .limit(limit);
   }
 
   async createQuestion(question: InsertQuestion): Promise<Question> {
@@ -190,19 +204,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRooms(includePrivate: boolean = false): Promise<MultiplayerRoom[]> {
-    const query = db
-      .select()
-      .from(multiplayerRooms)
-      .where(and(
-        eq(multiplayerRooms.isActive, true),
-        eq(multiplayerRooms.isStarted, false)
-      ));
-
-    if (!includePrivate) {
-      query.where(eq(multiplayerRooms.isPrivate, false));
+    if (includePrivate) {
+      return await db
+        .select()
+        .from(multiplayerRooms)
+        .where(and(
+          eq(multiplayerRooms.isActive, true),
+          eq(multiplayerRooms.isStarted, false)
+        ))
+        .orderBy(desc(multiplayerRooms.createdAt));
+    } else {
+      return await db
+        .select()
+        .from(multiplayerRooms)
+        .where(and(
+          eq(multiplayerRooms.isActive, true),
+          eq(multiplayerRooms.isStarted, false),
+          eq(multiplayerRooms.isPrivate, false)
+        ))
+        .orderBy(desc(multiplayerRooms.createdAt));
     }
-
-    return await query.orderBy(desc(multiplayerRooms.createdAt));
   }
 
   async getRoom(id: string): Promise<MultiplayerRoom | undefined> {
@@ -260,16 +281,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addToInventory(userId: string, itemType: string, quantity: number): Promise<void> {
-    await db
-      .insert(userInventory)
-      .values({ userId, itemType, quantity })
-      .onConflictDoUpdate({
-        target: [userInventory.userId, userInventory.itemType],
-        set: {
+    const existing = await db
+      .select()
+      .from(userInventory)
+      .where(and(
+        eq(userInventory.userId, userId),
+        eq(userInventory.itemType, itemType)
+      ));
+
+    if (existing.length > 0) {
+      await db
+        .update(userInventory)
+        .set({
           quantity: sql`${userInventory.quantity} + ${quantity}`,
-          updatedAt: new Date(),
-        },
-      });
+          updatedAt: sql`(unixepoch())`,
+        })
+        .where(and(
+          eq(userInventory.userId, userId),
+          eq(userInventory.itemType, itemType)
+        ));
+    } else {
+      await db
+        .insert(userInventory)
+        .values({ userId, itemType, quantity });
+    }
   }
 
   async useInventoryItem(userId: string, itemType: string, quantity: number = 1): Promise<boolean> {
@@ -281,7 +316,7 @@ export class DatabaseStorage implements IStorage {
         eq(userInventory.itemType, itemType)
       ));
 
-    if (!item || item.quantity < quantity) {
+    if (!item || (item.quantity || 0) < quantity) {
       return false;
     }
 
@@ -289,7 +324,7 @@ export class DatabaseStorage implements IStorage {
       .update(userInventory)
       .set({
         quantity: sql`${userInventory.quantity} - ${quantity}`,
-        updatedAt: new Date(),
+        updatedAt: sql`(unixepoch())`,
       })
       .where(and(
         eq(userInventory.userId, userId),

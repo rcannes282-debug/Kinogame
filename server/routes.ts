@@ -229,8 +229,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
       
-      await storage.updateUserCoins(userId, user.coins + coins);
-      res.json({ success: true, newBalance: user.coins + coins });
+      await storage.updateUserCoins(userId, (user.coins || 0) + coins);
+      res.json({ success: true, newBalance: (user.coins || 0) + coins });
     } catch (error) {
       console.error("Error buying coins:", error);
       res.status(500).json({ message: "Failed to buy coins" });
@@ -243,14 +243,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { itemType, quantity, cost } = req.body;
       
       const user = await storage.getUser(userId);
-      if (!user || user.coins < cost) {
+      if (!user || (user.coins || 0) < cost) {
         return res.status(400).json({ message: "Insufficient coins" });
       }
       
-      await storage.updateUserCoins(userId, user.coins - cost);
+      await storage.updateUserCoins(userId, (user.coins || 0) - cost);
       await storage.addToInventory(userId, itemType, quantity);
       
-      res.json({ success: true, newBalance: user.coins - cost });
+      res.json({ success: true, newBalance: (user.coins || 0) - cost });
     } catch (error) {
       console.error("Error buying item:", error);
       res.status(500).json({ message: "Failed to buy item" });

@@ -1,125 +1,106 @@
 import { sql, relations } from 'drizzle-orm';
 import {
   index,
-  jsonb,
-  pgTable,
-  timestamp,
-  varchar,
+  text as sqliteText,
+  sqliteTable,
   integer,
   text,
-  boolean,
-  pgEnum,
-} from "drizzle-orm/pg-core";
+  blob,
+} from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Session storage table (mandatory for Replit Auth)
-export const sessions = pgTable(
+export const sessions = sqliteTable(
   "sessions",
   {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
+    sid: text("sid").primaryKey(),
+    sess: text("sess").notNull(),
+    expire: integer("expire", { mode: 'timestamp' }).notNull(),
   },
-  (table) => [index("IDX_session_expire").on(table.expire)],
+  (table) => ({
+    expireIdx: index("IDX_session_expire").on(table.expire),
+  }),
 );
 
 // User storage table (mandatory for Replit Auth)
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").unique(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  profileImageUrl: text("profile_image_url"),
   coins: integer("coins").default(0),
   totalScore: integer("total_score").default(0),
   gamesPlayed: integer("games_played").default(0),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
-// Game modes enum
-export const gameModeEnum = pgEnum('game_mode', [
-  'timed',
-  'top250',
-  'infinite',
-  'multiplayer'
-]);
-
-// Question categories enum
-export const categoryEnum = pgEnum('category', [
-  'by_year',
-  'by_genre',
-  'by_actor',
-  'by_festival',
-  'top_250',
-  'general'
-]);
-
 // Questions table
-export const questions = pgTable("questions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const questions = sqliteTable("questions", {
+  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
   question: text("question").notNull(),
   optionA: text("option_a").notNull(),
   optionB: text("option_b").notNull(),
   optionC: text("option_c").notNull(),
   optionD: text("option_d").notNull(),
-  correctAnswer: varchar("correct_answer", { length: 1 }).notNull(), // A, B, C, or D
-  category: categoryEnum("category").notNull(),
+  correctAnswer: text("correct_answer").notNull(), // A, B, C, or D
+  category: text("category").notNull(),
   difficulty: integer("difficulty").default(1), // 1-5
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
 // Game sessions
-export const gameSessions = pgTable("game_sessions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id),
-  gameMode: gameModeEnum("game_mode").notNull(),
-  category: categoryEnum("category"),
+export const gameSessions = sqliteTable("game_sessions", {
+  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  userId: text("user_id").references(() => users.id),
+  gameMode: text("game_mode").notNull(),
+  category: text("category"),
   score: integer("score").default(0),
   questionsAnswered: integer("questions_answered").default(0),
   correctAnswers: integer("correct_answers").default(0),
   livesRemaining: integer("lives_remaining").default(5),
-  isCompleted: boolean("is_completed").default(false),
+  isCompleted: integer("is_completed", { mode: 'boolean' }).default(false),
   timeSpent: integer("time_spent").default(0), // in seconds
-  createdAt: timestamp("created_at").defaultNow(),
-  completedAt: timestamp("completed_at"),
+  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  completedAt: integer("completed_at", { mode: 'timestamp' }),
 });
 
 // Multiplayer rooms
-export const multiplayerRooms = pgTable("multiplayer_rooms", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const multiplayerRooms = sqliteTable("multiplayer_rooms", {
+  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
   name: text("name").notNull(),
-  hostId: varchar("host_id").references(() => users.id).notNull(),
+  hostId: text("host_id").references(() => users.id).notNull(),
   maxPlayers: integer("max_players").default(8),
   currentPlayers: integer("current_players").default(1),
-  gameMode: gameModeEnum("game_mode").default('multiplayer'),
-  category: categoryEnum("category"),
+  gameMode: text("game_mode").default('multiplayer'),
+  category: text("category"),
   timePerQuestion: integer("time_per_question").default(30), // in seconds
-  isPrivate: boolean("is_private").default(false),
-  password: varchar("password"),
-  isActive: boolean("is_active").default(true),
-  isStarted: boolean("is_started").default(false),
-  createdAt: timestamp("created_at").defaultNow(),
+  isPrivate: integer("is_private", { mode: 'boolean' }).default(false),
+  password: text("password"),
+  isActive: integer("is_active", { mode: 'boolean' }).default(true),
+  isStarted: integer("is_started", { mode: 'boolean' }).default(false),
+  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
 // Room participants
-export const roomParticipants = pgTable("room_participants", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  roomId: varchar("room_id").references(() => multiplayerRooms.id).notNull(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+export const roomParticipants = sqliteTable("room_participants", {
+  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  roomId: text("room_id").references(() => multiplayerRooms.id).notNull(),
+  userId: text("user_id").references(() => users.id).notNull(),
   score: integer("score").default(0),
-  isReady: boolean("is_ready").default(false),
-  joinedAt: timestamp("joined_at").defaultNow(),
+  isReady: integer("is_ready", { mode: 'boolean' }).default(false),
+  joinedAt: integer("joined_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
 // User inventory (for purchased items)
-export const userInventory = pgTable("user_inventory", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  itemType: varchar("item_type").notNull(), // 'extra_life', '50_50', 'extra_time'
+export const userInventory = sqliteTable("user_inventory", {
+  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  userId: text("user_id").references(() => users.id).notNull(),
+  itemType: text("item_type").notNull(), // 'extra_life', '50_50', 'extra_time'
   quantity: integer("quantity").default(0),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
 // Relations

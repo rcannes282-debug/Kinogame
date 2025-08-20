@@ -52,7 +52,7 @@ export default function Shop() {
   const queryClient = useQueryClient();
 
   // Fetch user inventory
-  const { data: inventory } = useQuery({
+  const { data: inventory } = useQuery<any[]>({
     queryKey: ["/api/users", user?.id, "inventory"],
     enabled: !!user?.id && isAuthenticated,
   });

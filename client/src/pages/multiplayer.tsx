@@ -63,19 +63,6 @@ export default function Multiplayer() {
     queryKey: ["/api/rooms"],
     enabled: isAuthenticated,
     refetchInterval: 10000, // Refresh every 10 seconds
-    onError: (error: Error) => {
-      if (isUnauthorizedError(error)) {
-        toast({
-          title: "Ошибка авторизации",
-          description: "Вы будете перенаправлены на страницу входа...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
-    },
   });
 
   // Create room mutation

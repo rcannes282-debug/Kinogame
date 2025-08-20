@@ -48,7 +48,7 @@ export default function Game() {
   });
 
   // Fetch user inventory for authenticated users
-  const { data: inventory } = useQuery({
+  const { data: inventory } = useQuery<any[]>({
     queryKey: ["/api/users", user?.id, "inventory"],
     enabled: !!user?.id && isAuthenticated,
   });

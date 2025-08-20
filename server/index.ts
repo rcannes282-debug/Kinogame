@@ -37,6 +37,16 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Инициализация базы данных при первом запуске
+  const fs = await import("fs");
+  if (!fs.existsSync('./database.sqlite')) {
+    console.log("🚀 Первый запуск - создаем базу данных...");
+    const { createTables } = await import("./migrate");
+    const { seedDatabase } = await import("./seed");
+    await createTables();
+    await seedDatabase();
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -66,6 +76,7 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    log(`🎮 KinoGame сервер запущен на порту ${port}`);
+    log(`🎬 База данных: SQLite`);
   });
 })();

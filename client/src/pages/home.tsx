@@ -19,7 +19,7 @@ export default function Home() {
     },
   });
 
-  const { data: userSessions } = useQuery({
+  const { data: userSessions } = useQuery<any[]>({
     queryKey: ["/api/users", user?.id, "game-sessions"],
     enabled: !!user?.id,
   });
