@@ -199,9 +199,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/rooms', isAuthenticated, async (req, res) => {
     try {
       const roomData = insertMultiplayerRoomSchema.parse(req.body);
-      roomData.hostId = (req.user as any).claims.sub;
+      const userId = (req.user as any).claims.sub;
       
-      const room = await storage.createRoom(roomData);
+      const room = await storage.createRoom({
+        ...roomData,
+        hostId: userId
+      });
       res.json(room);
     } catch (error) {
       console.error("Error creating room:", error);
@@ -337,7 +340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         confirmation: {
           type: 'redirect',
-          return_url: `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/shop?payment=success`
+          return_url: `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/shop?payment=success`
         },
         capture: true,
         description: description || `Покупка ${coins} монет`,
@@ -361,23 +364,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Webhook для получения уведомлений о платежах
   app.post('/api/payment-webhook', async (req, res) => {
     try {
-      const payment = req.body.object;
+      console.log('Payment webhook received:', JSON.stringify(req.body, null, 2));
       
-      if (payment.status === 'succeeded') {
-        const userId = payment.metadata.userId;
-        const coins = parseInt(payment.metadata.coins);
+      const payment = req.body.object || req.body;
+      
+      if (payment && payment.status === 'succeeded') {
+        const userId = payment.metadata?.userId;
+        const coins = parseInt(payment.metadata?.coins || '0');
         
-        // Добавляем монеты пользователю
-        const user = await storage.getUser(userId);
-        if (user) {
-          await storage.updateUserCoins(userId, (user.coins || 0) + coins);
-          console.log(`Добавлено ${coins} монет пользователю ${userId}`);
+        if (userId && coins > 0) {
+          // Добавляем монеты пользователю
+          const user = await storage.getUser(userId);
+          if (user) {
+            await storage.updateUserCoins(userId, (user.coins || 0) + coins);
+            console.log(`✅ Добавлено ${coins} монет пользователю ${userId}`);
+          } else {
+            console.error(`❌ Пользователь ${userId} не найден`);
+          }
+        } else {
+          console.error('❌ Не хватает данных в metadata:', { userId, coins });
         }
+      } else {
+        console.log('⏳ Платеж еще не завершен или данные некорректные');
       }
       
       res.status(200).send('OK');
     } catch (error) {
-      console.error("Error processing payment webhook:", error);
+      console.error("❌ Error processing payment webhook:", error);
       res.status(500).json({ message: "Failed to process payment" });
     }
   });

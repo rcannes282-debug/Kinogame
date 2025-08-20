@@ -166,6 +166,7 @@ export const insertGameSessionSchema = createInsertSchema(gameSessions).omit({
 
 export const insertMultiplayerRoomSchema = createInsertSchema(multiplayerRooms).omit({
   id: true,
+  hostId: true,
   currentPlayers: true,
   isActive: true,
   isStarted: true,

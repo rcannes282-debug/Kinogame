@@ -66,8 +66,10 @@ export default function Shop() {
       });
       // Очищаем URL
       window.history.replaceState({}, '', '/shop');
-      // Обновляем баланс пользователя
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      // Обновляем баланс пользователя через 3 секунды
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      }, 3000);
     } else if (paymentStatus === 'cancel') {
       toast({
         title: "Платёж отменён",

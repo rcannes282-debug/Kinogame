@@ -44,7 +44,7 @@ export interface IStorage {
   getLeaderboard(limit?: number): Promise<Array<User & { rank: number }>>;
   
   // Multiplayer operations
-  createRoom(room: InsertMultiplayerRoom): Promise<MultiplayerRoom>;
+  createRoom(room: InsertMultiplayerRoom & { hostId: string }): Promise<MultiplayerRoom>;
   getRooms(includePrivate?: boolean): Promise<MultiplayerRoom[]>;
   getRoom(id: string): Promise<MultiplayerRoom | undefined>;
   joinRoom(roomId: string, userId: string): Promise<RoomParticipant>;
@@ -242,7 +242,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Multiplayer operations
-  async createRoom(room: InsertMultiplayerRoom): Promise<MultiplayerRoom> {
+  async createRoom(room: InsertMultiplayerRoom & { hostId: string }): Promise<MultiplayerRoom> {
     const [newRoom] = await db
       .insert(multiplayerRooms)
       .values(room)
